@@ -1,7 +1,7 @@
 // --- CONSTANTS AND STATE ---
 const MAX_GOALS_DISPLAY = 5; // Display 0-5 goals in tables
-const MAX_GOALS_CALC = 8;    // Calculate 0-8 goals for accuracy
-const MAX_GOALS_SOLVER = 12; // Use a deeper range when reconciling market inputs
+const MAX_GOALS_CALC = 12;   // Calculate 0-12 goals for accuracy
+const MAX_GOALS_SOLVER = 18; // Use a deeper range when reconciling market inputs
 const RATIO_1H = 0.45;
 const RATIO_2H = 0.55;
 const INPUT_MODES = {
@@ -106,13 +106,15 @@ function createCSMatrix(lambdaH, lambdaA, maxGoals) {
 }
 
 function estimateOutcomeProbabilities(lambdaH, lambdaA, limit = MAX_GOALS_SOLVER) {
-    const matrix = createCSMatrix(lambdaH, lambdaA, limit);
+    const total = lambdaH + lambdaA;
+    const workingLimit = Math.max(limit, Math.ceil(total + 8));
+    const matrix = createCSMatrix(lambdaH, lambdaA, workingLimit);
     let probHome = 0;
     let probDraw = 0;
     let probAway = 0;
 
-    for (let h = 0; h <= limit; h++) {
-        for (let a = 0; a <= limit; a++) {
+    for (let h = 0; h <= workingLimit; h++) {
+        for (let a = 0; a <= workingLimit; a++) {
             const prob = matrix[h][a];
             if (!prob) continue;
             if (h > a) {
@@ -125,43 +127,75 @@ function estimateOutcomeProbabilities(lambdaH, lambdaA, limit = MAX_GOALS_SOLVER
         }
     }
 
-    const total = probHome + probDraw + probAway;
-    if (total > 0) {
-        probHome /= total;
-        probDraw /= total;
-        probAway /= total;
+    const sum = probHome + probDraw + probAway;
+    if (sum > 0) {
+        probHome /= sum;
+        probDraw /= sum;
+        probAway /= sum;
     }
 
     return { probHome, probDraw, probAway };
 }
 
 function deriveLambdasFrom1X2(totalGoals, targetProbs) {
-    const steps = 400;
     const tolerance = 0.0015;
-    let best = null;
 
     if (totalGoals <= 0) {
         return null;
     }
 
-    for (let i = 0; i <= steps; i++) {
-        const lambdaH = (totalGoals * i) / steps;
-        const lambdaA = totalGoals - lambdaH;
+    if (totalGoals <= 2e-6) {
+        const lambda = Math.max(totalGoals / 2, 1e-9);
+        return { lambdaH: lambda, lambdaA: lambda, error: 0 };
+    }
 
+    const evaluate = (lambdaH) => {
+        const lambdaA = Math.max(1e-9, totalGoals - lambdaH);
         const { probHome, probDraw, probAway } = estimateOutcomeProbabilities(lambdaH, lambdaA);
         const error =
             Math.pow(probHome - targetProbs.home, 2) +
             Math.pow(probDraw - targetProbs.draw, 2) +
             Math.pow(probAway - targetProbs.away, 2);
+        return { lambdaH, lambdaA, error };
+    };
 
-        if (!best || error < best.error) {
-            best = {
-                lambdaH,
-                lambdaA,
-                error
-            };
-        }
+    let low = 1e-9;
+    let high = Math.max(totalGoals - 1e-9, 1e-9);
+    if (high <= low) {
+        high = Math.max(totalGoals, 1e-6);
+        low = Math.min(low, high * 0.001);
     }
+    const goldenRatio = (Math.sqrt(5) - 1) / 2;
+
+    let x1 = high - goldenRatio * (high - low);
+    let x2 = low + goldenRatio * (high - low);
+    let f1 = evaluate(x1);
+    let f2 = evaluate(x2);
+    let best = f1.error < f2.error ? f1 : f2;
+
+    for (let i = 0; i < 80; i++) {
+        if (f1.error > f2.error) {
+            low = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = low + goldenRatio * (high - low);
+            f2 = evaluate(x2);
+        } else {
+            high = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = high - goldenRatio * (high - low);
+            f1 = evaluate(x1);
+        }
+
+        if (f1.error < best.error) best = f1;
+        if (f2.error < best.error) best = f2;
+    }
+
+    const lowEval = evaluate(low);
+    if (lowEval.error < best.error) best = lowEval;
+    const highEval = evaluate(high);
+    if (highEval.error < best.error) best = highEval;
 
     if (!best || best.error > tolerance) {
         return null;
