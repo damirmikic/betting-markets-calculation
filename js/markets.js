@@ -26,16 +26,25 @@ import {
 } from './utils.js';
 
 export function showMarketLoading(marketTables) {
-    marketTables['1x2'].innerHTML = getLoadingRow(3);
-    marketTables.dc.innerHTML = getLoadingRow(3);
-    marketTables.dnb.innerHTML = getLoadingRow(3);
-    marketTables.btts.innerHTML = getLoadingRow(3);
-    marketTables.goals.innerHTML = getLoadingRow(3);
-    marketTables.totals.innerHTML = getLoadingRow(5);
-    marketTables.firstHalf.innerHTML = getLoadingRow(3);
-    marketTables.secondHalf.innerHTML = getLoadingRow(3);
-    marketTables.htft.innerHTML = getLoadingRow(3);
-    marketTables.ah.innerHTML = getLoadingRow(6);
+    const placeholderConfig = {
+        '1x2': 3,
+        dc: 3,
+        dnb: 3,
+        btts: 3,
+        goals: 3,
+        totals: 5,
+        firstHalf: 3,
+        secondHalf: 3,
+        htft: 3,
+        ah: 6,
+    };
+
+    Object.entries(placeholderConfig).forEach(([key, columns]) => {
+        const table = marketTables[key];
+        if (table) {
+            table.innerHTML = getLoadingRow(columns);
+        }
+    });
 }
 
 export function renderAllMarkets(model, marketTables, onComplete) {
