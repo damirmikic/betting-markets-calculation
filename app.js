@@ -1,7 +1,6 @@
 // --- CONSTANTS AND STATE ---
 const MAX_GOALS_DISPLAY = 5; // Display 0-5 goals in tables
 const MAX_GOALS_CALC = 12;   // Calculate 0-12 goals for accuracy
-const MAX_GOALS_SOLVER = 18; // Use a deeper range when reconciling market inputs
 const RATIO_1H = 0.45;
 const RATIO_2H = 0.55;
 const INPUT_MODES = {
@@ -105,220 +104,149 @@ function createCSMatrix(lambdaH, lambdaA, maxGoals) {
     return matrix;
 }
 
-function estimateOutcomeProbabilities(lambdaH, lambdaA, limit = MAX_GOALS_SOLVER) {
-    const total = lambdaH + lambdaA;
-    const workingLimit = Math.max(limit, Math.ceil(total + 8));
-    const matrix = createCSMatrix(lambdaH, lambdaA, workingLimit);
-    let probHome = 0;
-    let probDraw = 0;
-    let probAway = 0;
+function homeAndUnderProbs(lambdaH, lambdaA, goalLine) {
+    const limit = 20;
+    const poissonH = [];
+    const poissonA = [];
 
-    for (let h = 0; h <= workingLimit; h++) {
-        for (let a = 0; a <= workingLimit; a++) {
-            const prob = matrix[h][a];
-            if (!prob) continue;
-            if (h > a) {
-                probHome += prob;
-            } else if (h === a) {
-                probDraw += prob;
-            } else {
-                probAway += prob;
+    for (let i = 0; i <= limit; i++) {
+        poissonH[i] = poisson(lambdaH, i);
+        poissonA[i] = poisson(lambdaA, i);
+    }
+
+    let home = 0;
+    let away = 0;
+    let under = 0;
+    let over = 0;
+
+    for (let i = 0; i <= limit; i++) {
+        for (let j = 0; j <= limit; j++) {
+            const prob = poissonH[i] * poissonA[j];
+
+            if (i > j) {
+                home += prob;
+            } else if (j > i) {
+                away += prob;
+            }
+
+            if (i + j < goalLine) {
+                under += prob;
+            } else if (i + j > goalLine) {
+                over += prob;
             }
         }
     }
 
-    const sum = probHome + probDraw + probAway;
-    if (sum > 0) {
-        probHome /= sum;
-        probDraw /= sum;
-        probAway /= sum;
-    }
+    const twoWay = home + away;
+    const totals = under + over;
 
-    return { probHome, probDraw, probAway };
-}
-
-function deriveLambdasFrom1X2(totalGoals, targetProbs) {
-    const tolerance = 0.0015;
-
-    if (totalGoals <= 0) {
-        return null;
-    }
-
-    if (totalGoals <= 2e-6) {
-        const lambda = Math.max(totalGoals / 2, 1e-9);
-        return { lambdaH: lambda, lambdaA: lambda, error: 0 };
-    }
-
-    const evaluate = (lambdaH) => {
-        const lambdaA = Math.max(1e-9, totalGoals - lambdaH);
-        const { probHome, probDraw, probAway } = estimateOutcomeProbabilities(lambdaH, lambdaA);
-        const error =
-            Math.pow(probHome - targetProbs.home, 2) +
-            Math.pow(probDraw - targetProbs.draw, 2) +
-            Math.pow(probAway - targetProbs.away, 2);
-        return { lambdaH, lambdaA, error };
+    return {
+        home: twoWay > 0 ? home / twoWay : 0,
+        under: totals > 0 ? under / totals : 0
     };
+}
 
-    let low = 1e-9;
-    let high = Math.max(totalGoals - 1e-9, 1e-9);
-    if (high <= low) {
-        high = Math.max(totalGoals, 1e-6);
-        low = Math.min(low, high * 0.001);
-    }
-    const goldenRatio = (Math.sqrt(5) - 1) / 2;
-
-    let x1 = high - goldenRatio * (high - low);
-    let x2 = low + goldenRatio * (high - low);
-    let f1 = evaluate(x1);
-    let f2 = evaluate(x2);
-    let best = f1.error < f2.error ? f1 : f2;
-
-    for (let i = 0; i < 80; i++) {
-        if (f1.error > f2.error) {
-            low = x1;
-            x1 = x2;
-            f1 = f2;
-            x2 = low + goldenRatio * (high - low);
-            f2 = evaluate(x2);
-        } else {
-            high = x2;
-            x2 = x1;
-            f2 = f1;
-            x1 = high - goldenRatio * (high - low);
-            f1 = evaluate(x1);
-        }
-
-        if (f1.error < best.error) best = f1;
-        if (f2.error < best.error) best = f2;
-    }
-
-    const lowEval = evaluate(low);
-    if (lowEval.error < best.error) best = lowEval;
-    const highEval = evaluate(high);
-    if (highEval.error < best.error) best = highEval;
-
-    if (!best || best.error > tolerance) {
+function expectedGoalsFromOdds(overPrice, underPrice, homePrice, awayPrice, goalLine) {
+    if ([overPrice, underPrice, homePrice, awayPrice].some(v => !isFinite(v) || v <= 0)) {
         return null;
     }
 
-    return best;
-}
+    const invOver = 1 / overPrice;
+    const invUnder = 1 / underPrice;
+    const invHome = 1 / homePrice;
+    const invAway = 1 / awayPrice;
 
-function poissonCDF(lambda, k) {
-    if (k < 0) return 0;
-    let sum = 0;
-    for (let i = 0; i <= k; i++) {
-        sum += poisson(lambda, i);
-    }
-    return sum;
-}
+    const totalsDen = invOver + invUnder;
+    const sidesDen = invHome + invAway;
 
-function computeWinLossPush(lambdaTotal, line) {
-    const floorValue = Math.floor(line + 1e-9);
-    const diffToHalf = Math.abs(line - (floorValue + 0.5));
-    const diffToWhole = Math.abs(line - floorValue);
-
-    let win;
-    let push;
-
-    if (diffToHalf < 1e-6) {
-        // Half goal line: no push possibility
-        win = 1 - poissonCDF(lambdaTotal, floorValue);
-        push = 0;
-    } else if (diffToWhole < 1e-6) {
-        // Whole number line: push when total equals the line
-        win = 1 - poissonCDF(lambdaTotal, floorValue);
-        push = poisson(lambdaTotal, floorValue);
-    } else {
-        // Fallback for unusual values
-        const threshold = Math.floor(line + 1e-9);
-        win = 1 - poissonCDF(lambdaTotal, threshold);
-        push = 0;
-    }
-
-    const loss = Math.max(0, 1 - win - push);
-    return { win, loss, push };
-}
-
-function probabilityTotalOver(lambdaTotal, line) {
-    if (line < 0) {
-        return 1; // Anything above a negative line is always over
-    }
-
-    const normalizedLine = Math.round(line * 4) / 4;
-    const diff = Math.abs(normalizedLine - line);
-    const remainder = ((Math.round(normalizedLine * 4) % 4) + 4) % 4;
-
-    if (diff > 1e-6) {
-        const stats = computeWinLossPush(lambdaTotal, line);
-        const total = stats.win + stats.loss;
-        return total <= 0 ? 0 : stats.win / total;
-    }
-
-    if (remainder === 1 || remainder === 3) {
-        // Quarter lines: treat as split stakes on adjacent lines
-        const lower = normalizedLine - 0.25;
-        const upper = normalizedLine + 0.25;
-        const lowStats = computeWinLossPush(lambdaTotal, lower);
-        const highStats = computeWinLossPush(lambdaTotal, upper);
-
-        const win = lowStats.win + highStats.win;
-        const loss = lowStats.loss + highStats.loss;
-        const total = win + loss;
-        return total <= 0 ? 0 : win / total;
-    }
-
-    const stats = computeWinLossPush(lambdaTotal, normalizedLine);
-    const total = stats.win + stats.loss;
-    return total <= 0 ? 0 : stats.win / total;
-}
-
-function solveTotalGoalsFromOdds(line, targetOver) {
-    const tolerance = 0.0005;
-    if (targetOver <= 0 || targetOver >= 1) {
+    if (totalsDen <= 0 || sidesDen <= 0) {
         return null;
     }
 
-    let low = 0.01;
-    let high = 10;
-    let lowProb = probabilityTotalOver(low, line);
-    let highProb = probabilityTotalOver(high, line);
+    const normalizedUnder = invUnder / totalsDen;
+    const normalizedHome = invHome / sidesDen;
 
-    // Expand the search range if needed to bracket the solution
+    let totalGoals = isFinite(goalLine) ? goalLine : 2.5;
+    if (totalGoals < 0.01) totalGoals = 0.01;
+    let supremacy = 0;
+
+    let homeExpected = totalGoals / 2 + supremacy / 2;
+    let awayExpected = totalGoals / 2 - supremacy / 2;
+
+    let output = homeAndUnderProbs(homeExpected, awayExpected, goalLine);
+    if (!output) {
+        return null;
+    }
+
+    let increment = output.under > normalizedUnder ? 0.05 : -0.05;
+    if (Math.abs(output.under - normalizedUnder) < 1e-6) {
+        increment = 0;
+    }
+    let error = Math.abs(output.under - normalizedUnder);
+    let previousError = 1;
     let guard = 0;
-    while (highProb < targetOver - tolerance && high < 25 && guard < 20) {
-        high *= 1.5;
-        highProb = probabilityTotalOver(high, line);
+
+    while (increment !== 0 && error < previousError && guard < 1000) {
+        totalGoals = Math.max(0.01, totalGoals + increment);
+        homeExpected = totalGoals / 2 + supremacy / 2;
+        awayExpected = totalGoals / 2 - supremacy / 2;
+        output = homeAndUnderProbs(homeExpected, awayExpected, goalLine);
+        previousError = error;
+        error = Math.abs(output.under - normalizedUnder);
         guard++;
     }
 
-    guard = 0;
-    while (lowProb > targetOver + tolerance && low > 1e-6 && guard < 20) {
-        low *= 0.5;
-        lowProb = probabilityTotalOver(low, line);
-        guard++;
-    }
-
-    if (lowProb > targetOver || highProb < targetOver) {
+    if (guard >= 1000) {
         return null;
     }
 
-    for (let i = 0; i < 60; i++) {
-        const mid = (low + high) / 2;
-        const midProb = probabilityTotalOver(mid, line);
-
-        if (Math.abs(midProb - targetOver) < tolerance) {
-            return mid;
-        }
-
-        if (midProb < targetOver) {
-            low = mid;
-        } else {
-            high = mid;
-        }
+    if (increment !== 0) {
+        totalGoals = Math.max(0.01, totalGoals - increment);
+        homeExpected = totalGoals / 2 + supremacy / 2;
+        awayExpected = totalGoals / 2 - supremacy / 2;
+        output = homeAndUnderProbs(homeExpected, awayExpected, goalLine);
     }
 
-    return (low + high) / 2;
+    let supremacyIncrement = output.home > normalizedHome ? -0.05 : 0.05;
+    if (Math.abs(output.home - normalizedHome) < 1e-6) {
+        supremacyIncrement = 0;
+    }
+
+    error = Math.abs(output.home - normalizedHome);
+    previousError = 1;
+    guard = 0;
+
+    while (supremacyIncrement !== 0 && error < previousError && guard < 1000) {
+        supremacy += supremacyIncrement;
+        homeExpected = totalGoals / 2 + supremacy / 2;
+        awayExpected = totalGoals / 2 - supremacy / 2;
+
+        if (homeExpected < 0.0001 || awayExpected < 0.0001) {
+            return null;
+        }
+
+        output = homeAndUnderProbs(homeExpected, awayExpected, goalLine);
+        previousError = error;
+        error = Math.abs(output.home - normalizedHome);
+        guard++;
+    }
+
+    if (guard >= 1000) {
+        return null;
+    }
+
+    if (supremacyIncrement !== 0) {
+        supremacy -= supremacyIncrement;
+    }
+
+    homeExpected = totalGoals / 2 + supremacy / 2;
+    awayExpected = totalGoals / 2 - supremacy / 2;
+
+    if (!isFinite(homeExpected) || !isFinite(awayExpected) || homeExpected <= 0 || awayExpected <= 0) {
+        return null;
+    }
+
+    return { lambdaH: homeExpected, lambdaA: awayExpected };
 }
 
 /**
@@ -424,47 +352,14 @@ function handleCalculate() {
             return;
         }
 
-        const impliedHome = 1 / oddsHome;
-        const impliedDraw = 1 / oddsDraw;
-        const impliedAway = 1 / oddsAway;
-        const impliedSum = impliedHome + impliedDraw + impliedAway;
-
-        if (impliedSum <= 0) {
-            showError("Unable to derive probabilities from the provided 1X2 odds.");
-            return;
-        }
-
-        const normalized1x2 = {
-            home: impliedHome / impliedSum,
-            draw: impliedDraw / impliedSum,
-            away: impliedAway / impliedSum
-        };
-
         if (totalLine < 0) {
             showError("Total goals line must be zero or higher.");
             return;
         }
 
-        const impliedOver = 1 / oddsOver;
-        const impliedUnder = 1 / oddsUnder;
-        const impliedTotalsSum = impliedOver + impliedUnder;
-
-        if (impliedTotalsSum <= 0) {
-            showError("Unable to derive probabilities from the provided total goals odds.");
-            return;
-        }
-
-        const normalizedOver = impliedOver / impliedTotalsSum;
-        const totalGoals = solveTotalGoalsFromOdds(totalLine, normalizedOver);
-
-        if (!totalGoals || totalGoals <= 0) {
-            showError("Unable to reconcile the total goals odds with the selected line.");
-            return;
-        }
-
-        const solved = deriveLambdasFrom1X2(totalGoals, normalized1x2);
+        const solved = expectedGoalsFromOdds(oddsOver, oddsUnder, oddsHome, oddsAway, totalLine);
         if (!solved) {
-            showError("Unable to reconcile the 1X2 odds with the total goals market.");
+            showError("Unable to reconcile the 1X2 and totals odds into a consistent goal model.");
             return;
         }
 
