@@ -14,8 +14,8 @@ const awayOddsInput = document.getElementById('odds-away');
 const totalLineInput = document.getElementById('total-line');
 const overOddsInput = document.getElementById('odds-over');
 const underOddsInput = document.getElementById('odds-under');
-const calcButton = document.getElementById('calc-button');
-const calcMarketsButton = document.getElementById('calc-markets-button');
+const calcButton = ensureSingleElement('calc-button');
+const calcMarketsButton = ensureSingleElement('calc-markets-button');
 const inputModeToggle = document.getElementById('input-mode-toggle');
 const inputSupremacyContainer = document.getElementById('input-supremacy');
 const inputMarketContainer = document.getElementById('input-market');
@@ -38,6 +38,19 @@ const marketTables = {
     htft: document.getElementById('market-htft'),
     ah: document.getElementById('market-ah'),
 };
+
+function ensureSingleElement(id) {
+    const elements = Array.from(document.querySelectorAll(`#${id}`));
+    if (elements.length === 0) {
+        throw new Error(`Element with id "${id}" is missing from the page.`);
+    }
+    elements.forEach((el, index) => {
+        if (index > 0) {
+            el.remove();
+        }
+    });
+    return elements[0];
+}
 
 function showError(message) {
     errorMessage.textContent = message;
@@ -163,13 +176,6 @@ function handleCalculateAllMarkets() {
         calcMarketsButton.disabled = false;
         calcMarketsButton.textContent = 'Calculate All Markets';
     });
-}
-
-if (!calcButton) {
-    throw new Error('Calculate Model button is missing from the page.');
-}
-if (!calcMarketsButton) {
-    throw new Error('Calculate All Markets button is missing from the page.');
 }
 
 calcButton.addEventListener('click', handleCalculate);
