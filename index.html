@@ -1044,7 +1044,7 @@
             const lines = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5];
             for (const line of lines) {
                 const probOver = calculateMarket({ ft_total: { type: 'o', value: line } });
-                const probUnder = 1 - probOver;
+                const probUnder = calculateMarket({ ft_total: { type: 'u', value: line } });
                 
                 const rOver = formatResult(probOver);
                 const rUnder = formatResult(probUnder);
