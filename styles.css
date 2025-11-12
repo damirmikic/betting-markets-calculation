@@ -3,29 +3,6 @@ body {
     background-color: #111827; /* bg-gray-900 */
     color: #d1d5db; /* text-gray-300 */
 }
-/* Custom styles for chat bubbles */
-.chat-bubble {
-    padding: 0.75rem 1rem;
-    border-radius: 0.75rem;
-    margin-bottom: 0.5rem;
-    max-width: 80%;
-    line-height: 1.5;
-    word-wrap: break-word;
-    white-space: pre-wrap;
-}
-.chat-user {
-    background-color: #374151; /* bg-gray-700 */
-    color: #f3f4f6; /* text-gray-100 */
-    align-self: flex-end;
-    border-bottom-right-radius: 0.25rem;
-}
-.chat-bot {
-    background-color: #1f2937; /* bg-gray-800 */
-    color: #d1d5db; /* text-gray-300 */
-    align-self: flex-start;
-    border-bottom-left-radius: 0.25rem;
-}
-
 /* Style for the matrix table */
 .matrix-table th, .matrix-table td {
     border: 1px solid #374151; /* border-gray-700 */
@@ -70,29 +47,6 @@ body {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
-}
-
-/* New Tab Styles */
-.tab-button {
-    padding: 0.75rem 1.5rem;
-    font-weight: 600;
-    cursor: pointer;
-    border-bottom: 3px solid transparent;
-    color: #9ca3af; /* text-gray-400 */
-    transition: all 0.2s ease;
-}
-.tab-button:hover {
-    color: #d1d5db; /* text-gray-300 */
-}
-.tab-button.active {
-    color: #3b82f6; /* text-blue-500 */
-    border-bottom-color: #3b82f6;
-}
-.tab-content {
-    display: none;
-}
-.tab-content.active {
-    display: block;
 }
 
 /* New Market Table Styles */
