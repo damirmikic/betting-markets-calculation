@@ -2,6 +2,7 @@ import { INPUT_MODES } from './constants.js';
 import { buildModelFromSupremacy, buildModelFromOdds } from './model.js';
 import { renderCorrectScoreMatrix } from './render.js';
 import { renderAllMarkets, showMarketLoading } from './markets.js';
+import * as tableTennisBo5Engine from './tableTennisBo5Engine.js';
 
 let currentModel = null;
 let inputMode = INPUT_MODES.SUPREMACY;
@@ -201,5 +202,9 @@ document.querySelectorAll('.market-group-toggle').forEach((button) => {
         }
     });
 });
+
+if (typeof window !== 'undefined') {
+    window.tableTennisBo5Engine = tableTennisBo5Engine;
+}
 
 setInputMode(INPUT_MODES.SUPREMACY);
