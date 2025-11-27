@@ -185,7 +185,7 @@ async function runOddsFetch(apiKey, leagueKeys) {
         console.error(error);
         errors.push(error.message);
         eventsByLeague.set(sportKey, []);
-        if (shouldStopOddsFetch(error)) {
+        if (isCriticalOddsError(error)) {
           stoppedEarly = true;
           break;
         }
@@ -226,12 +226,7 @@ function buildMarketsParamForSport() {
   return "h2h,totals";
 }
 
-function shouldStopOddsFetch(error) {
-  const message = error?.message || "";
-  return message.includes("OUT_OF_USAGE_CREDITS") || /HTTP 401/.test(message);
-}
-
-function shouldStopOddsFetch(error) {
+function isCriticalOddsError(error) {
   const message = error?.message || "";
   return message.includes("OUT_OF_USAGE_CREDITS") || /HTTP 401/.test(message);
 }
