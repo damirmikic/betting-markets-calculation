@@ -120,9 +120,8 @@ async function loadLeagues(apiKey) {
 async function runOddsFetch(apiKey, leagueKeys) {
   toggleButtons({ disableFetchLeagues: true, disableFetchOdds: true });
 
-  const markets = getSelectedValues(refs.marketsSelect);
+  const selectedMarkets = getSelectedValues(refs.marketsSelect);
   const oddsFormat = refs.oddsFormatSelect.value;
-  const marketsParam = markets.length ? markets.join(",") : "h2h";
   const regionsParam = AUTO_REGIONS.join(",");
   const allowedBookmakers = buildAllowedBookmakerKeys(AUTO_REGIONS);
 
@@ -130,28 +129,37 @@ async function runOddsFetch(apiKey, leagueKeys) {
   let totalEvents = 0;
   let usageUsed = null;
   let usageRemaining = null;
+  const errors = [];
+
+  const eventsByLeague = new Map();
 
   try {
-    const eventsByLeague = new Map();
-
     for (const sportKey of leagueKeys) {
       setStatus(`Fetching odds for ${sportKey} ...`);
 
-      const { events, usage } = await fetchOdds({
-        apiKey,
-        sportKey,
-        regions: regionsParam,
-        markets: marketsParam,
-        oddsFormat,
-      });
+      const marketsParam = buildMarketsParamForSport(sportKey, selectedMarkets);
 
-      const filteredEvents = applyBookmakerFilter(events, allowedBookmakers);
-      eventsByLeague.set(sportKey, filteredEvents);
+      try {
+        const { events, usage } = await fetchOdds({
+          apiKey,
+          sportKey,
+          regions: regionsParam,
+          markets: marketsParam,
+          oddsFormat,
+        });
 
-      if (usage.used !== null) usageUsed = usage.used;
-      if (usage.remaining !== null) usageRemaining = usage.remaining;
+        const filteredEvents = applyBookmakerFilter(events, allowedBookmakers);
+        eventsByLeague.set(sportKey, filteredEvents);
 
-      totalEvents += filteredEvents.length;
+        if (usage.used !== null) usageUsed = usage.used;
+        if (usage.remaining !== null) usageRemaining = usage.remaining;
+
+        totalEvents += filteredEvents.length;
+      } catch (error) {
+        console.error(error);
+        errors.push(error.message);
+        eventsByLeague.set(sportKey, []);
+      }
     }
 
     state.eventsByLeague = eventsByLeague;
@@ -166,6 +174,25 @@ async function runOddsFetch(apiKey, leagueKeys) {
   } finally {
     toggleButtons({ disableFetchLeagues: false, disableFetchOdds: false });
   }
+
+  if (errors.length) {
+    setError(errors.join(" | "));
+  }
+}
+
+function buildMarketsParamForSport(sportKey, selectedMarkets) {
+  const markets = selectedMarkets.length ? selectedMarkets : ["h2h"];
+
+  if (isOutrightSport(sportKey)) {
+    return "h2h";
+  }
+
+  const sanitized = markets.filter((m) => m && m !== "h2h_3_way");
+  return sanitized.length ? sanitized.join(",") : "h2h";
+}
+
+function isOutrightSport(sportKey) {
+  return /(_winner|_outright)/i.test(sportKey);
 }
 
 function syncSelection() {
