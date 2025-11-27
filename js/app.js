@@ -1,7 +1,6 @@
 import { fetchSoccerLeagues, fetchOdds } from "./api.js";
 import {
   refs,
-  getSelectedValues,
   setStatus,
   setError,
   setUsage,
@@ -125,11 +124,12 @@ async function loadLeagues(apiKey) {
 
   try {
     const leagues = await fetchSoccerLeagues(apiKey);
-    state.leagues = leagues;
+    const filteredLeagues = leagues.filter((league) => !isOutrightSport(league.key));
+    state.leagues = filteredLeagues;
     renderNavigation();
     setStatus(
-      leagues.length
-        ? `Loaded ${leagues.length} soccer leagues. Fetching odds automatically...`
+      filteredLeagues.length
+        ? `Loaded ${filteredLeagues.length} soccer leagues (outrights excluded). Fetching odds automatically...`
         : "No soccer sports found."
     );
   } finally {
@@ -140,7 +140,6 @@ async function loadLeagues(apiKey) {
 async function runOddsFetch(apiKey, leagueKeys) {
   toggleButtons({ disableFetchLeagues: true, disableFetchOdds: true });
 
-  const selectedMarkets = getSelectedValues(refs.marketsSelect);
   const oddsFormat = refs.oddsFormatSelect.value;
   const regionsParam = AUTO_REGIONS.join(",");
   const allowedBookmakers = buildAllowedBookmakerKeys(AUTO_REGIONS);
@@ -157,9 +156,13 @@ async function runOddsFetch(apiKey, leagueKeys) {
 
   try {
     for (const sportKey of leagueKeys) {
+      if (isOutrightSport(sportKey)) {
+        eventsByLeague.set(sportKey, []);
+        continue;
+      }
       setStatus(`Fetching odds for ${sportKey} ...`);
 
-      const marketsParam = buildMarketsParamForSport(sportKey, selectedMarkets);
+      const marketsParam = buildMarketsParamForSport();
 
       try {
         const { events, usage } = await fetchOdds({
@@ -219,15 +222,13 @@ async function runOddsFetch(apiKey, leagueKeys) {
   return { stoppedEarly };
 }
 
-function buildMarketsParamForSport(sportKey, selectedMarkets) {
-  const markets = selectedMarkets.length ? selectedMarkets : ["h2h"];
+function buildMarketsParamForSport() {
+  return "h2h,totals";
+}
 
-  if (isOutrightSport(sportKey)) {
-    return "h2h";
-  }
-
-  const sanitized = markets.filter((m) => m && m !== "h2h_3_way");
-  return sanitized.length ? sanitized.join(",") : "h2h";
+function shouldStopOddsFetch(error) {
+  const message = error?.message || "";
+  return message.includes("OUT_OF_USAGE_CREDITS") || /HTTP 401/.test(message);
 }
 
 function shouldStopOddsFetch(error) {
@@ -275,16 +276,45 @@ function buildAllowedBookmakerKeys(regions) {
 }
 
 function applyBookmakerFilter(events, allowedBookmakers) {
-  if (!allowedBookmakers.size) {
-    return events;
-  }
-
   return events.map((event) => ({
     ...event,
-    bookmakers: (event.bookmakers || []).filter((book) =>
-      allowedBookmakers.has(book.key)
-    ),
+    bookmakers: sanitizeBookmakers(event.bookmakers || [], allowedBookmakers),
   }));
+}
+
+function sanitizeBookmakers(bookmakers, allowedBookmakers) {
+  const onlyAllowed = allowedBookmakers.size
+    ? bookmakers.filter((book) => allowedBookmakers.has(book.key))
+    : bookmakers;
+
+  return onlyAllowed
+    .map((book) => ({
+      ...book,
+      markets: sanitizeMarkets(book.markets || []),
+    }))
+    .filter((book) => (book.markets || []).length);
+}
+
+function sanitizeMarkets(markets) {
+  const allowedMarkets = new Set(["h2h", "totals"]);
+  return markets
+    .filter((market) => allowedMarkets.has(market.key))
+    .map((market) => {
+      const outcomes = filterOutcomesForMarket(market);
+      return {
+        ...market,
+        outcomes,
+      };
+    })
+    .filter((market) => (market.outcomes || []).length);
+}
+
+function filterOutcomesForMarket(market) {
+  if (market.key !== "totals") {
+    return market.outcomes || [];
+  }
+
+  return (market.outcomes || []).filter((outcome) => Number(outcome.point) === 2.5);
 }
 
 function eventHasOdds(event) {

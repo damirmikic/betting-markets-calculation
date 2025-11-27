@@ -374,6 +374,7 @@ function computeAverageTotals(bookmakers) {
     (book.markets || []).forEach((market) => {
       if (market.key !== "totals") return;
       (market.outcomes || []).forEach((outcome) => {
+        if (Number(outcome.point) !== 2.5) return;
         const lower = (outcome.name || "").toLowerCase();
         const bucket = lower === "over" ? totals.over : lower === "under" ? totals.under : null;
         if (!bucket) return;
