@@ -115,32 +115,55 @@ button:disabled {
 .events-container {
   max-height: 80vh;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-details {
-  border-radius: 8px;
+.event-card {
   border: 1px solid #1f2937;
+  border-radius: 10px;
+  background: #0b1222;
+  padding: 10px 12px 14px;
+}
+
+.event-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin-bottom: 8px;
+}
+
+.event-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.markets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.market-block {
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 8px;
   background: #020617;
 }
 
-summary {
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.event-meta {
+.market-title {
   font-size: 12px;
-  color: #9ca3af;
-  margin: 2px 0 0 0;
+  margin: 4px 0 8px;
+  font-weight: 700;
+  color: #e5e7eb;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 th,
@@ -148,25 +171,22 @@ td {
   border: 1px solid #1f2937;
   padding: 4px 6px;
   text-align: left;
+  vertical-align: top;
 }
 
 th {
-  background: #020617;
+  background: #07101f;
   color: #9ca3af;
-  font-weight: 500;
-}
-
-.book-block {
-  border-top: 1px solid #1f2937;
-  padding: 8px 0;
-  margin-top: 4px;
-}
-
-.market-title {
-  font-size: 12px;
-  margin-top: 4px;
   font-weight: 600;
+}
+
+.price {
+  font-weight: 700;
   color: #e5e7eb;
+}
+
+.muted {
+  color: #6b7280;
 }
 
 .error {
@@ -213,4 +233,8 @@ code {
 
 .field {
   margin-top: 8px;
+}
+
+.league-heading {
+  margin: 10px 0 4px;
 }

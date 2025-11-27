@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>Soccer Odds Fetcher – The Odds API</h1>
-    <p>Step 1: Fetch soccer leagues. Step 2: Fetch events & odds for selected leagues.</p>
+    <p>Enter your key and the app will auto-fetch soccer leagues, events, and odds with a 3-minute refresh.</p>
   </header>
 
   <main>
@@ -59,8 +59,8 @@
       <hr class="divider" />
 
       <div>
-        <button id="btnFetchSoccer">1) Fetch soccer leagues</button>
-        <button id="btnFetchOdds" class="secondary" disabled>2) Fetch events & odds</button>
+        <button id="btnFetchSoccer">Refresh soccer leagues</button>
+        <button id="btnFetchOdds" class="secondary" disabled>Refresh events & odds</button>
       </div>
 
       <div id="status" class="small" aria-live="polite"></div>
@@ -74,8 +74,7 @@
         <label for="leagueSelect">Soccer leagues (sport keys)</label>
         <select id="leagueSelect" multiple aria-label="Available soccer leagues"></select>
         <p class="small">
-          These are sport keys starting with <code>soccer_</code> from <code>/v4/sports</code>.
-          Select one or more, then click “Fetch events & odds”.
+          Leagues are loaded from <code>/v4/sports</code> and auto-selected. Odds refresh every 3 minutes.
         </p>
       </div>
 

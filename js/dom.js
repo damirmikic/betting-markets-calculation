@@ -59,6 +59,12 @@ function populateLeagueOptions(leagues) {
   refs.leagueSelect.appendChild(fragment);
 }
 
+function selectAllLeagues() {
+  Array.from(refs.leagueSelect.options).forEach((option) => {
+    option.selected = true;
+  });
+}
+
 function clearEvents() {
   refs.eventsDiv.innerHTML = "";
 }
@@ -66,7 +72,7 @@ function clearEvents() {
 function renderEventsForLeague(sportKey, events, oddsFormat) {
   const leagueHeader = document.createElement("h3");
   leagueHeader.textContent = sportKey;
-  leagueHeader.className = "small";
+  leagueHeader.className = "small league-heading";
   refs.eventsDiv.appendChild(leagueHeader);
 
   if (!events.length) {
@@ -78,125 +84,133 @@ function renderEventsForLeague(sportKey, events, oddsFormat) {
   }
 
   events.forEach((event) => {
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = `${event.home_team} vs ${event.away_team}`;
+    const wrapper = document.createElement("div");
+    wrapper.className = "event-card";
+
+    const header = document.createElement("div");
+    header.className = "event-header";
+    header.innerHTML = `<div class="event-title">${event.home_team} vs ${event.away_team}</div>`;
 
     const meta = document.createElement("div");
     meta.className = "event-meta";
     meta.textContent = `ID: ${event.id} | Kickoff: ${formatKickoff(event.commence_time)}`;
-    summary.appendChild(meta);
+    header.appendChild(meta);
+    wrapper.appendChild(header);
 
-    details.appendChild(summary);
-    details.appendChild(buildEventBody(event, oddsFormat));
+    const marketsContainer = document.createElement("div");
+    marketsContainer.className = "markets-grid";
 
-    refs.eventsDiv.appendChild(details);
+    const marketTables = buildMarketTables(event, oddsFormat);
+    if (!marketTables.length) {
+      const noMarkets = document.createElement("p");
+      noMarkets.className = "small";
+      noMarkets.textContent = "No bookmakers or markets available.";
+      marketsContainer.appendChild(noMarkets);
+    } else {
+      marketTables.forEach((tableBlock) => marketsContainer.appendChild(tableBlock));
+    }
+
+    wrapper.appendChild(marketsContainer);
+    refs.eventsDiv.appendChild(wrapper);
   });
 }
 
-function buildEventBody(event, oddsFormat) {
-  const container = document.createElement("div");
-  container.style.padding = "8px 12px 10px 12px";
+function buildMarketTables(event, oddsFormat) {
+  const marketMap = new Map();
 
-  if (!event.bookmakers?.length) {
-    const noBooks = document.createElement("p");
-    noBooks.className = "small";
-    noBooks.textContent = "No bookmakers data.";
-    container.appendChild(noBooks);
-    return container;
-  }
+  (event.bookmakers || []).forEach((book) => {
+    (book.markets || []).forEach((market) => {
+      const normalizedOutcomes = (market.outcomes || []).map((outcome) => ({
+        name: outcome.name,
+        price: outcome.price,
+        point: outcome.point,
+      }));
 
-  const pillRow = document.createElement("div");
-  pillRow.className = "pill-row";
-  event.bookmakers.forEach((book) => {
-    const pill = document.createElement("span");
-    pill.className = "pill";
-    pill.textContent = book.title || book.key;
-    pillRow.appendChild(pill);
-  });
-  container.appendChild(pillRow);
+      if (!marketMap.has(market.key)) {
+        marketMap.set(market.key, {
+          columns: normalizedOutcomes.map((o) => o.name),
+          rows: [],
+        });
+      }
 
-  event.bookmakers.forEach((book) => {
-    const bookBlock = document.createElement("div");
-    bookBlock.className = "book-block";
-
-    const title = document.createElement("div");
-    title.className = "small";
-    title.innerHTML = `<strong>${book.title || book.key}</strong> <span class="badge">${book.key}</span>`;
-    bookBlock.appendChild(title);
-
-    const lastUpdate = document.createElement("div");
-    lastUpdate.className = "small";
-    lastUpdate.textContent = `Last update: ${book.last_update}`;
-    bookBlock.appendChild(lastUpdate);
-
-    if (!book.markets?.length) {
-      const noMarkets = document.createElement("p");
-      noMarkets.className = "small";
-      noMarkets.textContent = "No markets.";
-      bookBlock.appendChild(noMarkets);
-    } else {
-      book.markets.forEach((market) => {
-        const marketTitle = document.createElement("div");
-        marketTitle.className = "market-title";
-        marketTitle.textContent = `Market: ${market.key}`;
-        bookBlock.appendChild(marketTitle);
-
-        if (!market.outcomes?.length) {
-          const noOutcomes = document.createElement("p");
-          noOutcomes.className = "small";
-          noOutcomes.textContent = "No outcomes.";
-          bookBlock.appendChild(noOutcomes);
-          return;
+      const marketEntry = marketMap.get(market.key);
+      normalizedOutcomes.forEach((o) => {
+        if (!marketEntry.columns.includes(o.name)) {
+          marketEntry.columns.push(o.name);
         }
-
-        const table = document.createElement("table");
-        const thead = document.createElement("thead");
-        const trHead = document.createElement("tr");
-        ["Name", `Price (${oddsFormat})`, "Point"].forEach((heading) => {
-          const th = document.createElement("th");
-          th.textContent = heading;
-          trHead.appendChild(th);
-        });
-        thead.appendChild(trHead);
-        table.appendChild(thead);
-
-        const tbody = document.createElement("tbody");
-        market.outcomes.forEach((outcome) => {
-          const tr = document.createElement("tr");
-
-          const nameCell = document.createElement("td");
-          nameCell.textContent = outcome.name;
-          tr.appendChild(nameCell);
-
-          const priceCell = document.createElement("td");
-          priceCell.textContent = outcome.price;
-          tr.appendChild(priceCell);
-
-          const pointCell = document.createElement("td");
-          pointCell.textContent =
-            outcome.point !== undefined && outcome.point !== null ? outcome.point : "";
-          tr.appendChild(pointCell);
-
-          tbody.appendChild(tr);
-        });
-
-        table.appendChild(tbody);
-        bookBlock.appendChild(table);
       });
-    }
 
-    container.appendChild(bookBlock);
+      marketEntry.rows.push({
+        bookmaker: book.title || book.key,
+        bookmakerKey: book.key,
+        lastUpdate: book.last_update,
+        outcomes: normalizedOutcomes,
+      });
+    });
   });
 
-  return container;
+  const blocks = [];
+  marketMap.forEach((marketEntry, marketKey) => {
+    const block = document.createElement("div");
+    block.className = "market-block";
+
+    const heading = document.createElement("div");
+    heading.className = "market-title";
+    heading.textContent = `Market: ${marketKey}`;
+    block.appendChild(heading);
+
+    const table = document.createElement("table");
+    table.className = "market-table";
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Bookmaker", ...marketEntry.columns].forEach((headingText) => {
+      const th = document.createElement("th");
+      th.textContent = headingText;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    marketEntry.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      const bookmakerCell = document.createElement("td");
+      bookmakerCell.innerHTML = `<strong>${row.bookmaker}</strong><div class="small muted">${row.bookmakerKey}</div><div class="small muted">${row.lastUpdate || ""}</div>`;
+      tr.appendChild(bookmakerCell);
+
+      marketEntry.columns.forEach((colName) => {
+        const td = document.createElement("td");
+        const outcome = row.outcomes.find((o) => o.name === colName);
+        if (outcome) {
+          td.innerHTML = `<div class="price">${outcome.price}</div>${formatPoint(outcome.point)}`;
+        } else {
+          td.textContent = "-";
+        }
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    block.appendChild(table);
+    blocks.push(block);
+  });
+
+  return blocks;
+}
+
+function formatPoint(point) {
+  if (point === undefined || point === null) return "";
+  return `<div class="small muted">pt ${point}</div>`;
 }
 
 function formatKickoff(commence) {
   try {
     if (!commence) return "";
     const parsed = new Date(commence);
-    return parsed.toISOString().replace(".000Z", "Z");
+    return `${parsed.toLocaleString()} (${parsed.toISOString().replace(".000Z", "Z")})`;
   } catch (error) {
     return commence || "";
   }
@@ -210,6 +224,7 @@ export {
   setUsage,
   toggleButtons,
   populateLeagueOptions,
+  selectAllLeagues,
   clearEvents,
   renderEventsForLeague,
 };
