@@ -21,6 +21,7 @@ const ALLOWED_BOOKMAKERS_BY_REGION = {
 
 let refreshTimer = null;
 let isFetching = false;
+let lastApiKeyUsed = null;
 const state = {
   leagues: [],
   eventsByLeague: new Map(),
@@ -64,10 +65,15 @@ async function attemptBootstrap() {
     setStatus("Enter your API key to start automatic fetching.");
     return;
   }
+  if (apiKey === lastApiKeyUsed && state.leagues.length) {
+    setStatus("Leagues already loaded. Use refresh buttons to update.");
+    return;
+  }
+
   await runFullFetch(true);
 }
 
-async function runFullFetch(refreshLeagues) {
+async function runFullFetch(refreshLeagues = false) {
   if (isFetching) return;
   isFetching = true;
   resetMessages();
@@ -81,6 +87,9 @@ async function runFullFetch(refreshLeagues) {
 
     if (refreshLeagues) {
       await loadLeagues(apiKey);
+      if (state.leagues.length) {
+        lastApiKeyUsed = apiKey;
+      }
     }
 
     const leagueKeys = state.leagues.map((league) => league.key);
@@ -89,8 +98,15 @@ async function runFullFetch(refreshLeagues) {
       return;
     }
 
-    await runOddsFetch(apiKey, leagueKeys);
-    scheduleAutoRefresh();
+    const { stoppedEarly } = await runOddsFetch(apiKey, leagueKeys);
+    if (stoppedEarly) {
+      stopAutoRefresh();
+      setStatus(
+        "Automatic refresh paused after a critical odds error. You can retry manually once the issue is resolved."
+      );
+    } else {
+      scheduleAutoRefresh();
+    }
   } catch (error) {
     console.error(error);
     setError(error.message);
@@ -133,6 +149,8 @@ async function runOddsFetch(apiKey, leagueKeys) {
 
   const eventsByLeague = new Map();
 
+  let stoppedEarly = false;
+
   try {
     for (const sportKey of leagueKeys) {
       setStatus(`Fetching odds for ${sportKey} ...`);
@@ -149,16 +167,21 @@ async function runOddsFetch(apiKey, leagueKeys) {
         });
 
         const filteredEvents = applyBookmakerFilter(events, allowedBookmakers);
-        eventsByLeague.set(sportKey, filteredEvents);
+        const eventsWithOdds = filteredEvents.filter(eventHasOdds);
+        eventsByLeague.set(sportKey, eventsWithOdds);
 
         if (usage.used !== null) usageUsed = usage.used;
         if (usage.remaining !== null) usageRemaining = usage.remaining;
 
-        totalEvents += filteredEvents.length;
+        totalEvents += eventsWithOdds.length;
       } catch (error) {
         console.error(error);
         errors.push(error.message);
         eventsByLeague.set(sportKey, []);
+        if (shouldStopOddsFetch(error)) {
+          stoppedEarly = true;
+          break;
+        }
       }
     }
 
@@ -167,9 +190,16 @@ async function runOddsFetch(apiKey, leagueKeys) {
     renderNavigation();
     renderSelectedLeagueEvents();
 
-    setStatus(
-      `Auto-refresh every 3 minutes. Loaded ${totalEvents} event(s) across ${leagueKeys.length} league(s).`
-    );
+    const processedLeagues = eventsByLeague.size;
+    if (!stoppedEarly) {
+      setStatus(
+        `Auto-refresh every 3 minutes. Loaded ${totalEvents} event(s) across ${processedLeagues} league(s).`
+      );
+    } else {
+      setStatus(
+        `Stopped after ${processedLeagues} league(s) due to an authorization or quota error. Manual retry required.`
+      );
+    }
     setUsage(usageUsed, usageRemaining);
   } finally {
     toggleButtons({ disableFetchLeagues: false, disableFetchOdds: false });
@@ -178,6 +208,8 @@ async function runOddsFetch(apiKey, leagueKeys) {
   if (errors.length) {
     setError(errors.join(" | "));
   }
+
+  return { stoppedEarly };
 }
 
 function buildMarketsParamForSport(sportKey, selectedMarkets) {
@@ -189,6 +221,11 @@ function buildMarketsParamForSport(sportKey, selectedMarkets) {
 
   const sanitized = markets.filter((m) => m && m !== "h2h_3_way");
   return sanitized.length ? sanitized.join(",") : "h2h";
+}
+
+function shouldStopOddsFetch(error) {
+  const message = error?.message || "";
+  return message.includes("OUT_OF_USAGE_CREDITS") || /HTTP 401/.test(message);
 }
 
 function isOutrightSport(sportKey) {
@@ -241,6 +278,17 @@ function applyBookmakerFilter(events, allowedBookmakers) {
       allowedBookmakers.has(book.key)
     ),
   }));
+}
+
+function eventHasOdds(event) {
+  return (event.bookmakers || []).some((book) =>
+    (book.markets || []).some((market) =>
+      (market.outcomes || []).some((outcome) => {
+        const price = Number(outcome.price);
+        return Number.isFinite(price);
+      })
+    )
+  );
 }
 
 function scheduleAutoRefresh() {
