@@ -16,6 +16,13 @@ const REFRESH_MS = 3 * 60 * 1000;
 let refreshTimer = null;
 let isFetching = false;
 
+const ALLOWED_BOOKMAKERS_BY_REGION = {
+  eu: ["pinnacle"],
+  us: ["betonlineag", "betmgm", "draftkings", "espnbet"],
+  uk: ["paddypower", "skybet", "smarkets"],
+  au: ["bet365_au"]
+};
+
 init();
 
 function init() {
@@ -102,11 +109,13 @@ async function runOddsOnly() {
 async function runOddsFetch(apiKey, leagueKeys) {
   toggleButtons({ disableFetchLeagues: true, disableFetchOdds: true });
   const regions = getSelectedValues(refs.regionsSelect);
+  const selectedRegions = regions.length ? regions : ["eu"];
   const markets = getSelectedValues(refs.marketsSelect);
   const oddsFormat = refs.oddsFormatSelect.value;
 
-  const regionsParam = regions.length ? regions.join(",") : "eu";
-  const marketsParam = markets.length ? markets.join(",") : "h2h_3_way";
+  const regionsParam = selectedRegions.join(",");
+  const marketsParam = markets.length ? markets.join(",") : "h2h";
+  const allowedBookmakers = buildAllowedBookmakerKeys(selectedRegions);
 
   setStatus(`Fetching odds for ${leagueKeys.length} league(s)...`);
   let totalEvents = 0;
@@ -125,11 +134,13 @@ async function runOddsFetch(apiKey, leagueKeys) {
         oddsFormat,
       });
 
+      const filteredEvents = applyBookmakerFilter(events, allowedBookmakers);
+
       if (usage.used !== null) usageUsed = usage.used;
       if (usage.remaining !== null) usageRemaining = usage.remaining;
 
-      totalEvents += events.length;
-      renderEventsForLeague(sportKey, events, oddsFormat);
+      totalEvents += filteredEvents.length;
+      renderEventsForLeague(sportKey, filteredEvents, oddsFormat);
     }
 
     setStatus(`Auto-refresh every 3 minutes. Loaded ${totalEvents} event(s) across ${leagueKeys.length} league(s).`);
@@ -145,6 +156,30 @@ function ensureLeaguesSelected() {
 
   selectAllLeagues();
   return getSelectedValues(refs.leagueSelect);
+}
+
+function buildAllowedBookmakerKeys(selectedRegions) {
+  const allowed = new Set();
+  selectedRegions.forEach((region) => {
+    const regionKeys = ALLOWED_BOOKMAKERS_BY_REGION[region];
+    if (regionKeys) {
+      regionKeys.forEach((key) => allowed.add(key));
+    }
+  });
+  return allowed;
+}
+
+function applyBookmakerFilter(events, allowedBookmakers) {
+  if (!allowedBookmakers.size) {
+    return events;
+  }
+
+  return events.map((event) => ({
+    ...event,
+    bookmakers: (event.bookmakers || []).filter((book) =>
+      allowedBookmakers.has(book.key)
+    ),
+  }));
 }
 
 function scheduleAutoRefresh() {
